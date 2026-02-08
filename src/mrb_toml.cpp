@@ -1,4 +1,3 @@
-#include "toml11/parser.hpp"
 #include <mruby.h>
 #include <mruby/class.h>
 #include <mruby/data.h>
@@ -24,18 +23,19 @@ raise_toml_error(mrb_state* mrb, const std::string& msg)
 }
 
 static mrb_value
-make_time_local(mrb_state* mrb, struct RClass* klass, mrb_sym meth,
-                int y, int m, int d, int hh, int mm, int ss)
+make_time(mrb_state* mrb, struct RClass* klass, mrb_sym meth,
+                int y, int m, int d, int hh, int mm, int ss, int us)
 {
-  mrb_value args[6] = {
+  mrb_value args[] = {
     mrb_convert_number(mrb, y),
     mrb_convert_number(mrb, m + 1),
     mrb_convert_number(mrb, d),
     mrb_convert_number(mrb, hh),
     mrb_convert_number(mrb, mm),
-    mrb_convert_number(mrb, ss)
+    mrb_convert_number(mrb, ss),
+    mrb_convert_number(mrb, us)
   };
-  return mrb_funcall_argv(mrb, mrb_obj_value(klass), meth, 6, args);
+  return mrb_funcall_argv(mrb, mrb_obj_value(klass), meth, 7, args);
 }
 
 /* ========================================================================== */
@@ -72,44 +72,44 @@ toml_table_to_mrb(mrb_state* mrb, const toml::table& tbl)
   return h;
 }
 
-static mrb_value
-toml_datetime_to_mrb(mrb_state* mrb, const toml::value& v)
+template <typename TimeLike>
+static void extract_fractional(const TimeLike& t, long& usec)
 {
-  struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
+  long total_nsec = 0;
 
-  /* ---------------- local date ---------------- */
-  if (v.is_local_date()) {
-    auto d = v.as_local_date();
+  if (t.nanosecond)  total_nsec += t.nanosecond;
+  if (t.microsecond) total_nsec += t.microsecond * 1000;
+  if (t.millisecond) total_nsec += t.millisecond * 1'000'000;
 
-    struct RClass* date_klass =
-      mrb_class_get_under_id(mrb, mod, MRB_SYM(Date));
-    return make_time_local(
-      mrb, date_klass, MRB_SYM(local),
-      d.year, d.month, d.day,
-      0, 0, 0
-    );
-  }
+  usec = total_nsec / 1000;
+}
 
-  /* ---------------- local time ---------------- */
-  if (v.is_local_time()) {
-    auto t = v.as_local_time();
+template <typename DT>
+static void dt_to_tm(const DT& dt, struct tm& out);
 
-    struct RClass* time_klass =
-      mrb_class_get_under_id(mrb, mod, MRB_SYM(Time));
-    return make_time_local(
-      mrb, time_klass, MRB_SYM(local),
-      1970, 1, 1,
-      t.hour, t.minute, t.second
-    );
-  }
+// ------------------------------------------------------------
+// local_datetime: NO UTC conversion. Just copy fields.
+// ------------------------------------------------------------
+template <>
+void dt_to_tm(const toml::local_datetime& dt, struct tm& out)
+{
+    std::memset(&out, 0, sizeof(out));
+    out.tm_year = dt.date.year;
+    out.tm_mon  = dt.date.month;
+    out.tm_mday = dt.date.day;
+    out.tm_hour = dt.time.hour;
+    out.tm_min  = dt.time.minute;
+    out.tm_sec  = dt.time.second;
+    out.tm_isdst = -1;
+}
 
-  /* ---------------- local datetime → UTC ---------------- */
-  if (v.is_local_datetime()) {
-    auto dt = v.as_local_datetime();
-
-
-    struct tm tm_local;
-    std::memset(&tm_local, 0, sizeof(tm_local));
+// ------------------------------------------------------------
+// offset_datetime: normalize to UTC
+// ------------------------------------------------------------
+template <>
+void dt_to_tm(const toml::offset_datetime& dt, struct tm& out)
+{
+    struct tm tm_local{};
     tm_local.tm_year = dt.date.year;
     tm_local.tm_mon  = dt.date.month;
     tm_local.tm_mday = dt.date.day;
@@ -118,67 +118,85 @@ toml_datetime_to_mrb(mrb_state* mrb, const toml::value& v)
     tm_local.tm_sec  = dt.time.second;
     tm_local.tm_isdst = -1;
 
-    time_t t_utc = timegm(&tm_local);
+    time_t t = timegm(&tm_local);
 
-    struct tm tm_utc;
+    int offset_sec = (dt.offset.hour * 60 + dt.offset.minute) * 60;
+    t -= offset_sec;
+
 #if defined(_WIN32)
-    gmtime_s(&tm_utc, &t_utc);
+    gmtime_s(&out, &t);
 #else
-    gmtime_r(&t_utc, &tm_utc);
+    gmtime_r(&t, &out);
 #endif
+}
 
-    struct RClass* dt_klass =
-      mrb_class_get_under_id(mrb, mod, MRB_SYM(DateTime));
-    return make_time_local(
-      mrb, dt_klass, MRB_SYM(utc),
-      tm_utc.tm_year,
-      tm_utc.tm_mon,
-      tm_utc.tm_mday,
-      tm_utc.tm_hour,
-      tm_utc.tm_min,
-      tm_utc.tm_sec
-    );
+
+template <typename DT>
+static mrb_value build_datetime(mrb_state* mrb,
+                                       struct RClass* klass,
+                                       mrb_sym zone,
+                                       const DT& dt)
+{
+  long usec = 0;
+  extract_fractional(dt.time, usec);
+
+  struct tm tm_utc{};
+  dt_to_tm(dt, tm_utc);
+
+  mrb_value time = make_time(
+    mrb, klass, zone,
+    tm_utc.tm_year,
+    tm_utc.tm_mon,
+    tm_utc.tm_mday,
+    tm_utc.tm_hour,
+    tm_utc.tm_min,
+    tm_utc.tm_sec,
+    usec
+  );
+
+  return time;
+}
+
+static mrb_value
+toml_datetime_to_mrb(mrb_state* mrb, const toml::value& v)
+{
+  struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
+
+  if (v.is_local_date()) {
+    auto d = v.as_local_date();
+    struct RClass* cls = mrb_class_get_under_id(mrb, mod, MRB_SYM(Date));
+    return make_time(mrb, cls, MRB_SYM(local),
+                           d.year, d.month, d.day,
+                           0, 0, 0, 0);
   }
 
-  /* ---------------- offset datetime → UTC ---------------- */
-  if (v.is_offset_datetime()) {
-    auto odt = v.as_offset_datetime();
+  if (v.is_local_time()) {
+    auto t = v.as_local_time();
+    struct RClass* cls = mrb_class_get_under_id(mrb, mod, MRB_SYM(Time));
 
+    long usec = 0;
+    extract_fractional(t, usec);
 
-    struct tm tm_local;
-    std::memset(&tm_local, 0, sizeof(tm_local));
-    tm_local.tm_year = odt.date.year;
-    tm_local.tm_mon  = odt.date.month;
-    tm_local.tm_mday = odt.date.day;
-    tm_local.tm_hour = odt.time.hour;
-    tm_local.tm_min  = odt.time.minute;
-    tm_local.tm_sec  = odt.time.second;
-    tm_local.tm_isdst = -1;
-
-    time_t t_utc = timegm(&tm_local);
-    int total_minutes = odt.offset.hour * 60 + odt.offset.minute;
-    int offset_seconds = total_minutes * 60;
-
-    t_utc -= offset_seconds;
-
-    struct tm tm_utc;
-#if defined(_WIN32)
-    gmtime_s(&tm_utc, &t_utc);
-#else
-    gmtime_r(&t_utc, &tm_utc);
-#endif
-
-    struct RClass* dt_klass =
-      mrb_class_get_under_id(mrb, mod, MRB_SYM(DateTime));
-    return make_time_local(
-      mrb, dt_klass, MRB_SYM(utc),
-      tm_utc.tm_year,
-      tm_utc.tm_mon,
-      tm_utc.tm_mday,
-      tm_utc.tm_hour,
-      tm_utc.tm_min,
-      tm_utc.tm_sec
+    mrb_value time = make_time(
+      mrb, cls, MRB_SYM(local),
+      1970, 0, 1,
+      t.hour, t.minute, t.second,
+      usec
     );
+
+    return time;
+  }
+
+  if (v.is_local_datetime()) {
+    auto dt = v.as_local_datetime();
+    struct RClass* cls = mrb_class_get_under_id(mrb, mod, MRB_SYM(DateTime));
+    return build_datetime(mrb, cls, MRB_SYM(local), dt);
+  }
+
+  if (v.is_offset_datetime()) {
+    auto dt = v.as_offset_datetime();
+    struct RClass* cls = mrb_class_get_under_id(mrb, mod, MRB_SYM(DateTime));
+    return build_datetime(mrb, cls, MRB_SYM(utc), dt);
   }
 
   raise_toml_error(mrb, "unknown datetime node");
@@ -280,13 +298,45 @@ mrb_array_to_toml_array(mrb_state* mrb, mrb_value obj)
   return toml::value(arr);
 }
 
+static void
+mrb_time_extract(mrb_state* mrb, mrb_value time,
+                 struct tm*& out_tm, long& out_usec)
+{
+  time = mrb_funcall_argv(mrb, time, MRB_SYM(getutc), 0, nullptr);
+
+  out_tm = mrb_time_get_tm(mrb, time);
+
+  mrb_value usec_v = mrb_funcall_argv(mrb, time, MRB_SYM(usec), 0, nullptr);
+  out_usec = (long)mrb_integer(usec_v);
+}
+
 static toml::offset_datetime
 mrb_time_to_offset_datetime(mrb_state* mrb, mrb_value time)
 {
-  mrb_sym getutc = MRB_SYM(getutc);
-  time = mrb_funcall_argv(mrb, time, getutc, 0, nullptr);
-  struct tm* tm = mrb_time_get_tm(mrb, time);
-  return toml::offset_datetime(std::tm(*tm));
+  struct tm* tm;
+  long usec;
+  mrb_time_extract(mrb, time, tm, usec);
+
+  toml::local_date date(
+    tm->tm_year + 1900,
+    toml::month_t(tm->tm_mon),
+    tm->tm_mday
+  );
+
+  int millis = (int)(usec / 1000);
+  int micros = (int)(usec % 1000);
+
+  toml::local_time tod(
+    tm->tm_hour,
+    tm->tm_min,
+    tm->tm_sec,
+    millis,
+    micros
+  );
+
+  toml::time_offset off(0, 0); // Always UTC
+
+  return toml::offset_datetime(date, tod, off);
 }
 
 static toml::value
@@ -311,8 +361,10 @@ mrb_to_toml_value(mrb_state* mrb, mrb_value v)
 
 
       if (mrb_obj_is_kind_of(mrb, v, core_time_klass)) {
-        return toml::value(mrb_time_to_offset_datetime(mrb, v));
+          toml::value tv(mrb_time_to_offset_datetime(mrb, v));
+          return tv;
       }
+
 
       mrb_raisef(mrb, E_TYPE_ERROR, "cannot convert %Y to TOML", v);
       return toml::value();
@@ -327,10 +379,18 @@ mrb_to_toml_value(mrb_state* mrb, mrb_value v)
 static mrb_value
 mrb_toml_doc_dump(mrb_state* mrb, mrb_value self)
 {
-  mrb_value path;
-  mrb_get_args(mrb, "S", &path);
+  mrb_value path = mrb_nil_value();
+  mrb_get_args(mrb, "|S!", &path);
 
   toml::value* root = mrb_cpp_get<toml::value>(mrb, self);
+
+  if (mrb_nil_p(path)) {
+    std::ostringstream oss;
+    oss << *root;
+
+    std::string out = oss.str();
+    return mrb_str_new(mrb, out.data(), out.size());
+  }
 
   std::string s(RSTRING_PTR(path), RSTRING_LEN(path));
   std::ofstream ofs(s, std::ios::out | std::ios::trunc);
@@ -339,6 +399,7 @@ mrb_toml_doc_dump(mrb_state* mrb, mrb_value self)
   ofs << *root;
   return mrb_nil_value();
 }
+
 
 static mrb_value
 mrb_toml_doc_load(mrb_state* mrb, mrb_value self)
@@ -395,17 +456,43 @@ mrb_toml_doc_parse(mrb_state* mrb, mrb_value self)
 }
 
 /* ========================================================================== */
-/* TOML.dump(obj, path)                                                       */
+/* TOML.dump(obj, path = nil)                                                 */
 /* ========================================================================== */
 
 static mrb_value
 mrb_toml_module_dump(mrb_state* mrb, mrb_value self)
 {
   mrb_value obj;
-  const char* path;
-  mrb_get_args(mrb, "oz", &obj, &path);
+  mrb_value path = mrb_nil_value();
+  mrb_get_args(mrb, "o|S!", &obj, &path);
 
-  std::ofstream ofs(path, std::ios::out | std::ios::trunc);
+  // ------------------------------------------------------------
+  if (mrb_nil_p(path)) {
+    std::ostringstream oss;
+
+    struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
+    struct RClass* doc_class =
+      mrb_class_get_under_id(mrb, mod, MRB_SYM(Document));
+
+    if (mrb_obj_is_kind_of(mrb, obj, doc_class)) {
+      toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
+      oss << *root;
+    }
+    else if (mrb_type(obj) == MRB_TT_HASH) {
+      toml::value v = mrb_hash_to_toml_table(mrb, obj);
+      oss << v;
+    }
+    else {
+      toml::value v = mrb_to_toml_value(mrb, obj);
+      oss << v;
+    }
+
+    std::string out = oss.str();
+    return mrb_str_new(mrb, out.data(), out.size());
+  }
+
+  std::string s(RSTRING_PTR(path), RSTRING_LEN(path));
+  std::ofstream ofs(s, std::ios::out | std::ios::trunc);
   if (!ofs) raise_toml_error(mrb, "failed to open file for writing");
 
   struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
@@ -422,12 +509,12 @@ mrb_toml_module_dump(mrb_state* mrb, mrb_value self)
   }
   else {
     toml::value v = mrb_to_toml_value(mrb, obj);
-
     ofs << v;
   }
 
   return mrb_nil_value();
 }
+
 
 /* ========================================================================== */
 /* Init                                                                       */
@@ -456,11 +543,11 @@ mrb_mruby_toml_gem_init(mrb_state* mrb)
                        mrb_toml_doc_dump, MRB_ARGS_REQ(1));
 
   mrb_define_class_method_id(mrb, mod, MRB_SYM(load),
-                             mrb_toml_doc_load, MRB_ARGS_REQ(1));
+                             mrb_toml_doc_load, MRB_ARGS_OPT(1));
     mrb_define_class_method_id(mrb, mod, MRB_SYM(parse),
     mrb_toml_doc_parse, MRB_ARGS_REQ(1));
   mrb_define_class_method_id(mrb, mod, MRB_SYM(dump),
-                             mrb_toml_module_dump, MRB_ARGS_REQ(2));
+                             mrb_toml_module_dump, MRB_ARGS_ARG(1, 1));
 }
 
 void

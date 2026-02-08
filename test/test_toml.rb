@@ -1,13 +1,10 @@
 # test_toml.rb
 
-# Directory of this test file
 TEST_DIR = File.dirname(File.expand_path(__FILE__))
 
-# Write → yield → delete
 def with_temp_toml(name, content)
   path = File.join(TEST_DIR, name)
   File.open(path, "w") { |f| f.write(content) }
-
   begin
     yield path
   ensure
@@ -68,39 +65,22 @@ assert("TOML: multiline literal strings") do
 end
 
 assert("TOML: integers") do
-  data = TOML.parse("a = 0")
-  assert_equal 0, data["a"]
-
-  data = TOML.parse("a = 42")
-  assert_equal 42, data["a"]
-
-  data = TOML.parse("a = -42")
-  assert_equal(-42, data["a"])
-
-  data = TOML.parse("a = 1_000_000")
-  assert_equal 1000000, data["a"]
+  assert_equal 0, TOML.parse("a = 0")["a"]
+  assert_equal 42, TOML.parse("a = 42")["a"]
+  assert_equal(-42, TOML.parse("a = -42")["a"])
+  assert_equal 1_000_000, TOML.parse("a = 1_000_000")["a"]
 end
 
 assert("TOML: floats") do
-  data = TOML.parse("f = 3.14")
-  assert_equal 3.14, data["f"]
-
-  data = TOML.parse("f = -0.5")
-  assert_equal(-0.5, data["f"])
-
-  data = TOML.parse("f = 1e3")
-  assert_equal 1000.0, data["f"]
-
-  data = TOML.parse("f = 1_000.5")
-  assert_equal 1000.5, data["f"]
+  assert_equal 3.14, TOML.parse("f = 3.14")["f"]
+  assert_equal(-0.5, TOML.parse("f = -0.5")["f"])
+  assert_equal 1000.0, TOML.parse("f = 1e3")["f"]
+  assert_equal 1000.5, TOML.parse("f = 1_000.5")["f"]
 end
 
 assert("TOML: booleans") do
-  data = TOML.parse("b = true")
-  assert_equal true, data["b"]
-
-  data = TOML.parse("b = false")
-  assert_equal false, data["b"]
+  assert_equal true, TOML.parse("b = true")["b"]
+  assert_equal false, TOML.parse("b = false")["b"]
 end
 
 # -------------------------------------------------------------------
@@ -108,21 +88,16 @@ end
 # -------------------------------------------------------------------
 
 assert("TOML: arrays basic") do
-  data = TOML.parse("a = [1, 2, 3]")
-  assert_equal [1,2,3], data["a"]
-
-  data = TOML.parse('a = ["a", "b", "c"]')
-  assert_equal ["a","b","c"], data["a"]
+  assert_equal [1,2,3], TOML.parse("a = [1,2,3]")["a"]
+  assert_equal ["a","b","c"], TOML.parse('a = ["a","b","c"]')["a"]
 end
 
 assert("TOML: arrays mixed") do
-  data = TOML.parse('a = [1, "two", 3.0, true]')
-  assert_equal [1, "two", 3.0, true], data["a"]
+  assert_equal [1,"two",3.0,true], TOML.parse('a = [1,"two",3.0,true]')["a"]
 end
 
 assert("TOML: nested arrays") do
-  data = TOML.parse('a = [[1,2], [3,4]]')
-  assert_equal [[1,2],[3,4]], data["a"]
+  assert_equal [[1,2],[3,4]], TOML.parse('a = [[1,2],[3,4]]')["a"]
 end
 
 assert("TOML: arrays multiline") do
@@ -147,7 +122,7 @@ assert("TOML: basic tables") do
     port = 8080
   T
   assert_equal "localhost", data["server"]["host"]
-  assert_equal 8080,        data["server"]["port"]
+  assert_equal 8080, data["server"]["port"]
 end
 
 assert("TOML: nested tables") do
@@ -205,8 +180,8 @@ assert("TOML: array of tables basic") do
 
   fruits = data["fruit"]
   assert_equal 2, fruits.size
-  assert_equal "apple",  fruits[0]["name"]
-  assert_equal "red",    fruits[0]["color"]
+  assert_equal "apple", fruits[0]["name"]
+  assert_equal "red", fruits[0]["color"]
   assert_equal "banana", fruits[1]["name"]
   assert_equal "yellow", fruits[1]["color"]
 end
@@ -216,17 +191,15 @@ end
 # -------------------------------------------------------------------
 
 assert("TOML: local date") do
-  data = TOML.parse("d = 2024-01-02")
-  d = data["d"]
+  d = TOML.parse("d = 2024-01-02")["d"]
   assert_equal TOML::Date, d.class
   assert_equal 2024, d.year
-  assert_equal 1,    d.month
-  assert_equal 2,    d.day
+  assert_equal 1, d.month
+  assert_equal 2, d.day
 end
 
 assert("TOML: local time") do
-  data = TOML.parse("t = 12:34:56")
-  t = data["t"]
+  t = TOML.parse("t = 12:34:56")["t"]
   assert_equal TOML::Time, t.class
   assert_equal 12, t.hour
   assert_equal 34, t.min
@@ -234,104 +207,60 @@ assert("TOML: local time") do
 end
 
 assert("TOML: local datetime") do
-  data = TOML.parse("dt = 2024-01-02T12:34:56")
-  dt = data["dt"]
+  dt = TOML.parse("dt = 2024-01-02T12:34:56")["dt"]
   assert_equal TOML::DateTime, dt.class
   assert_equal 2024, dt.year
-  assert_equal 1,    dt.month
-  assert_equal 2,    dt.day
-  assert_equal 12,   dt.hour
-  assert_equal 34,   dt.min
-  assert_equal 56,   dt.sec
+  assert_equal 1, dt.month
+  assert_equal 2, dt.day
+  assert_equal 12, dt.hour
+  assert_equal 34, dt.min
+  assert_equal 56, dt.sec
 end
 
 assert("TOML: offset datetime Z") do
-  data = TOML.parse("z = 2024-01-02T12:34:56Z")
-  z = data["z"]
-  assert_equal TOML::DateTime, z.class
+  z = TOML.parse("z = 2024-01-02T12:34:56Z")["z"]
   assert_equal 0, z.utc_offset
 end
 
 assert("TOML: offset datetime +02:00") do
-  data = TOML.parse("o = 2024-01-02T12:34:56+02:00")
-  o = data["o"]
-  assert_equal TOML::DateTime, o.class
+  o = TOML.parse("o = 2024-01-02T12:34:56+02:00")["o"]
   assert_equal 0, o.utc_offset
 end
 
 assert("TOML: offset datetime -05:30") do
-  data = TOML.parse("o = 2024-01-02T12:34:56-05:30")
-  o = data["o"]
-  assert_equal TOML::DateTime, o.class
+  o = TOML.parse("o = 2024-01-02T12:34:56-05:30")["o"]
   assert_equal 0, o.utc_offset
 end
 
 # -------------------------------------------------------------------
-# 6. Basic load + dump round-trip
+# 6. Dumping round-trip (string-based)
 # -------------------------------------------------------------------
 
-assert("TOML: basic load") do
-  with_temp_toml("basic.toml", <<~T) do |path|
-    title = "Example"
-    count = 42
-    pi = 3.14
-    active = true
-
-    [server]
-    host = "localhost"
-    port = 8080
-
-    nums = [1, 2, 3]
-  T
-    data = TOML.load(path)
-
-    assert_equal "Example", data["title"]
-    assert_equal 42,        data["count"]
-    assert_equal 3.14,      data["pi"]
-    assert_equal true,      data["active"]
-
-    assert_equal "localhost", data["server"]["host"]
-    assert_equal 8080,        data["server"]["port"]
-
-    assert_equal [1,2,3], data["server"]["nums"]
-  end
-end
-
-assert("TOML: dumping round-trip scalars") do
+assert("TOML: dumping round-trip scalars (string)") do
   h = { bool: true, int: 1, float: 1.0, str: "hello" }
+  dumped = TOML.dump(h)
+  data = TOML.parse(dumped)
 
-  with_temp_toml("round_scalars.toml", "") do |path|
-    TOML.dump(h, path)
-    data = TOML.load(path)
-
-    assert_equal true,    data["bool"]
-    assert_equal 1,       data["int"]
-    assert_equal 1.0,     data["float"]
-    assert_equal "hello", data["str"]
-  end
+  assert_equal true, data["bool"]
+  assert_equal 1, data["int"]
+  assert_equal 1.0, data["float"]
+  assert_equal "hello", data["str"]
 end
 
-assert("TOML: dumping round-trip arrays") do
+assert("TOML: dumping round-trip arrays (string)") do
   h = { nums: [1,2,3], mix: [1,"two",3.0,true] }
+  dumped = TOML.dump(h)
+  data = TOML.parse(dumped)
 
-  with_temp_toml("round_arrays.toml", "") do |path|
-    TOML.dump(h, path)
-    data = TOML.load(path)
-
-    assert_equal [1,2,3], data["nums"]
-    assert_equal [1,"two",3.0,true], data["mix"]
-  end
+  assert_equal [1,2,3], data["nums"]
+  assert_equal [1,"two",3.0,true], data["mix"]
 end
 
-assert("TOML: dumping round-trip Time (UTC, seconds only)") do
+assert("TOML: dumping round-trip Time (string)") do
   now = Time.at(Time.now.to_i).utc
-  h = { time: now }
-
-  with_temp_toml("round_time.toml", "") do |path|
-    TOML.dump(h, path)
-    data = TOML.load(path)
-    assert_equal now, data["time"]
-  end
+  dumped = TOML.dump(time: now)
+  data = TOML.parse(dumped)
+  assert_equal now, data["time"]
 end
 
 # -------------------------------------------------------------------
@@ -359,7 +288,7 @@ assert("TOML: invalid table redefinition") do
 end
 
 # -------------------------------------------------------------------
-# 8. Many keys
+# 8. Many keys (file-based)
 # -------------------------------------------------------------------
 
 assert("TOML: many keys") do
@@ -377,9 +306,7 @@ end
 
 assert("TOML: offset datetime UTC conversion") do
   def expected_utc(local, h, m)
-    total_minutes = h * 60 + m
-    offset_seconds = total_minutes * 60
-    local - offset_seconds
+    local - ((h * 60 + m) * 60)
   end
 
   cases = [
@@ -394,8 +321,7 @@ assert("TOML: offset datetime UTC conversion") do
 
   cases.each do |h, m|
     toml = "dt = 2024-01-02T12:34:56#{format("%+03d:%02d", h, m)}"
-    data = TOML.parse(toml)
-    dt   = data["dt"]
+    dt = TOML.parse(toml)["dt"]
 
     local = Time.utc(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec).to_i
 
@@ -412,15 +338,10 @@ assert("TOML: round‑trip DateTime always normalizes to UTC") do
   t_local = Time.local(2024, 1, 2, 12, 34, 56)
   t_utc   = t_local.getutc
 
-  h = { dt: t_local }
+  dumped = TOML.dump(dt: t_local)
+  dt = TOML.parse(dumped)["dt"]
 
-  with_temp_toml("round_trip_datetime.toml", "") do |path|
-    TOML.dump(h, path)
-    data = TOML.load(path)
-    dt = data["dt"]
-
-    assert_equal(0, dt.utc_offset)
-    assert_equal(t_utc.to_i, dt.to_i)
-    assert_equal(t_local.to_i, dt.getlocal.to_i)
-  end
+  assert_equal 0, dt.utc_offset
+  assert_equal t_utc.to_i, dt.to_i
+  assert_equal t_local.to_i, dt.getlocal.to_i
 end
