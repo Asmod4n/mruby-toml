@@ -1,3 +1,4 @@
+#include "toml11/parser.hpp"
 #include <mruby.h>
 #include <mruby/class.h>
 #include <mruby/data.h>
@@ -218,8 +219,7 @@ MRB_CPP_DEFINE_TYPE(toml::value, mrb_toml_value)
 static mrb_value
 mrb_toml_doc_initialize(mrb_state* mrb, mrb_value self)
 {
-  toml::value v = toml::table{};
-  mrb_cpp_new<toml::value>(mrb, self, std::move(v));
+  mrb_cpp_new<toml::value>(mrb, self);
   return self;
 }
 
@@ -367,6 +367,33 @@ mrb_toml_doc_load(mrb_state* mrb, mrb_value self)
   return obj;
 }
 
+static mrb_value
+mrb_toml_doc_parse(mrb_state* mrb, mrb_value self)
+{
+  mrb_value doc;
+  mrb_get_args(mrb, "S", &doc);
+
+  struct RClass* doc_class =
+    mrb_class_get_under_id(mrb, mrb_class_ptr(self), MRB_SYM(Document));
+  mrb_value obj = mrb_obj_new(mrb, doc_class, 0, nullptr);
+
+  toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
+
+  try {
+    std::string content(RSTRING_PTR(doc), RSTRING_LEN(doc));
+    toml::value v = toml::parse_str(content);
+    if (!v.is_table()) raise_toml_error(mrb, "TOML root must be a table");
+    *root = std::move(v);
+  }
+  catch (const std::exception& e) {
+    std::string msg = "TOML parse error: ";
+    msg += e.what();
+    raise_toml_error(mrb, msg);
+  }
+
+  return obj;
+}
+
 /* ========================================================================== */
 /* TOML.dump(obj, path)                                                       */
 /* ========================================================================== */
@@ -430,6 +457,8 @@ mrb_mruby_toml_gem_init(mrb_state* mrb)
 
   mrb_define_class_method_id(mrb, mod, MRB_SYM(load),
                              mrb_toml_doc_load, MRB_ARGS_REQ(1));
+    mrb_define_class_method_id(mrb, mod, MRB_SYM(parse),
+    mrb_toml_doc_parse, MRB_ARGS_REQ(1));
   mrb_define_class_method_id(mrb, mod, MRB_SYM(dump),
                              mrb_toml_module_dump, MRB_ARGS_REQ(2));
 }
