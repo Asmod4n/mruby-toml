@@ -133,8 +133,8 @@ void dt_to_tm(const toml::offset_datetime& dt, struct tm& out)
 
 template <typename DT>
 static mrb_value build_datetime(mrb_state* mrb,
-                                       mrb_sym zone,
-                                       const DT& dt)
+                                mrb_sym zone,
+                                const DT& dt)
 {
   long usec = 0;
   extract_fractional(dt.time, usec);
@@ -142,11 +142,23 @@ static mrb_value build_datetime(mrb_state* mrb,
   struct tm tm_utc{};
   dt_to_tm(dt, tm_utc);
 
-  mrb_timezone tz = (zone == MRB_SYM(utc) ? MRB_TIMEZONE_UTC : MRB_TIMEZONE_LOCAL);
+  mrb_timezone tz;
+  mrb_sym type;
+
+  if (zone == MRB_SYM(utc)) {
+    tz   = MRB_TIMEZONE_UTC;
+    type = MRB_SYM(offset_datetime);
+  } else {
+    tz   = MRB_TIMEZONE_LOCAL;
+    type = MRB_SYM(local_datetime);
+  }
+
   mrb_value time = make_time_at(mrb, tm_utc, usec, tz);
-  mrb_iv_set(mrb, time, MRB_IVSYM(toml_type), mrb_symbol_value(zone == MRB_SYM(utc) ? MRB_SYM(offset_datetime) : MRB_SYM(local_datetime)));
+  mrb_iv_set(mrb, time, MRB_IVSYM(toml_type), mrb_symbol_value(type));
+
   return time;
 }
+
 
 static mrb_value
 toml_datetime_to_mrb(mrb_state* mrb, const toml::value& v)
