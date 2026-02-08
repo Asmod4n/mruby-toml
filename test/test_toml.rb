@@ -192,7 +192,6 @@ end
 
 assert("TOML: local date") do
   d = TOML.parse("d = 2024-01-02")["d"]
-  assert_equal TOML::Date, d.class
   assert_equal 2024, d.year
   assert_equal 1, d.month
   assert_equal 2, d.day
@@ -200,7 +199,6 @@ end
 
 assert("TOML: local time") do
   t = TOML.parse("t = 12:34:56")["t"]
-  assert_equal TOML::Time, t.class
   assert_equal 12, t.hour
   assert_equal 34, t.min
   assert_equal 56, t.sec
@@ -208,7 +206,6 @@ end
 
 assert("TOML: local datetime") do
   dt = TOML.parse("dt = 2024-01-02T12:34:56")["dt"]
-  assert_equal TOML::DateTime, dt.class
   assert_equal 2024, dt.year
   assert_equal 1, dt.month
   assert_equal 2, dt.day
