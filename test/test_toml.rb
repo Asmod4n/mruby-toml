@@ -331,14 +331,21 @@ end
 # 10. Round-trip UTC normalization
 # -------------------------------------------------------------------
 
-assert("TOML: round‑trip DateTime always normalizes to UTC") do
+assert("TOML: round-trip DateTime preserves instant and local representation") do
   t_local = Time.local(2024, 1, 2, 12, 34, 56)
-  t_utc   = t_local.getutc
 
   dumped = TOML.dump(dt: t_local)
   dt = TOML.parse(dumped)["dt"]
 
+  # Parsed Time is UTC by design
   assert_equal 0, dt.utc_offset
-  assert_equal t_utc.to_i, dt.to_i
-  assert_equal t_local.to_i, dt.getlocal.to_i
+
+  # Same instant
+  assert_equal t_local.to_i, dt.to_i
+
+  # Convert back to local for wall-clock comparison
+  dt_local = dt.getlocal
+
+  assert_equal t_local.utc_offset, dt_local.utc_offset
+  assert_equal t_local.to_i, dt_local.to_i
 end

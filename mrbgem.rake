@@ -7,6 +7,7 @@ MRuby::Gem::Specification.new('mruby-toml') do |spec|
   spec.add_dependency 'mruby-c-ext-helpers'
   spec.add_dependency 'mruby-string-ext'
   spec.add_dependency 'mruby-sprintf'
+  spec.add_dependency 'mruby-errno'
   spec.add_test_dependency 'mruby-io'
   spec.add_test_dependency 'mruby-dir'
 
