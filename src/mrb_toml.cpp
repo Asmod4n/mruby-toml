@@ -26,7 +26,7 @@ raise_toml_error(mrb_state* mrb, const std::string& msg)
 }
 
 static mrb_value
-make_time_at(mrb_state* mrb, const struct tm& tm_val, long usec, mrb_timezone zone)
+make_time_at(mrb_state* mrb, const struct tm& tm_val, time_t usec, mrb_timezone zone)
 {
   struct tm tm_copy = tm_val;
   time_t sec;
@@ -80,7 +80,7 @@ toml_table_to_mrb(mrb_state* mrb, const toml::table& tbl)
 }
 
 template <typename TimeLike>
-static void extract_fractional(const TimeLike& t, long& usec)
+static void extract_fractional(const TimeLike& t, time_t& usec)
 {
   long total_nsec = 0;
 
@@ -140,7 +140,7 @@ template <> struct is_offset_datetime<toml::offset_datetime> : std::true_type {}
 template <typename DT>
 static mrb_value build_datetime(mrb_state* mrb, const DT& dt)
 {
-  long usec = 0;
+  time_t usec = 0;
   extract_fractional(dt.time, usec);
 
   struct tm tm_utc{};
@@ -309,8 +309,8 @@ toml::offset_datetime mrb_time_to_offset_datetime(mrb_state* mrb, mrb_value time
     long usec = static_cast<long>(mrb_integer(usec_v));
 
     // 3. Get UTC offset in seconds directly
-    mrb_int offset_sec = mrb_integer(mrb_funcall_argv(mrb, time, MRB_SYM(utc_offset), 0, nullptr));
-
+    mrb_value offset_sec_v = mrb_funcall_argv(mrb, time, MRB_SYM(utc_offset), 0, nullptr);
+    long offset_sec = static_cast<int>(mrb_integer(offset_sec_v));
     int off_hour = -static_cast<int>(offset_sec / 3600);
     int off_min  = -static_cast<int>((offset_sec % 3600) / 60);
 

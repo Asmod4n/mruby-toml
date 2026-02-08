@@ -2,7 +2,7 @@
 TOML for mruby (https://toml.io/)
 
 A lightweight, standards-aligned TOML implementation for mruby.
-Designed to feel natural in Ruby while staying fast, small, and compatible with the TOML 1.0 specification.
+Designed to feel natural in Ruby while staying fast, small, and compatible with the TOML 1.1 specification.
 
 ## Features
 - TOML parsing and dumping
@@ -14,6 +14,7 @@ Designed to feel natural in Ruby while staying fast, small, and compatible with 
 - Built on top of **[toml11](https://github.com/ToruNiina/toml11)**, a mature and well-tested MIT-licensed TOML library
 
 ## Usage
+with files
 ```ruby
 cfg = TOML.load("config.toml")
 puts cfg["server"]["port"]
@@ -21,6 +22,12 @@ puts cfg["server"]["port"]
 cfg.dump("config_copy.toml")
 
 TOML.dump({server: {addr: "127.0.0.1", port: 8080}}, "dump.toml")
+```
+with strings
+```ruby
+h = { bool: true, int: 1, float: 1.0, str: "hello" }
+dumped = TOML.dump(h)
+data = TOML.parse(dumped)
 ```
 
 ## Installation
