@@ -1,0 +1,14 @@
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.swp
+*.swo
+*.log
+build/
+mruby/
+vendor/toml++/.git
+build_config.rb.lock
+.cache/
+compile_commands.json

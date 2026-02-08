@@ -1,0 +1,6 @@
+[submodule "test/toml-test"]
+	path = test/toml-test
+	url = https://github.com/toml-lang/toml-test
+[submodule "vendor/toml11"]
+	path = vendor/toml11
+	url = https://github.com/ToruNiina/toml11.git
