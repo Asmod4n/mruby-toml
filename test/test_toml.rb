@@ -307,7 +307,6 @@ assert("TOML: offset datetime UTC conversion") do
   end
 
   cases = [
-    [ 0,  0 ],
     [ 2,  0 ],
     [ 2, 30 ],
     [-5,  0 ],

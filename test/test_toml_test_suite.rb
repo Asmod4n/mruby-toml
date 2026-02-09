@@ -2,7 +2,7 @@
 
 TEST_DIR = File.dirname(File.expand_path(__FILE__))
 TOML_TEST_ROOT = File.join(TEST_DIR, "toml-test", "tests")
-FILE_LIST = File.join(TOML_TEST_ROOT, "files-toml-1.0.0")
+FILE_LIST = File.join(TOML_TEST_ROOT, "files-toml-1.1.0")
 
 def with_temp_toml(name, content)
   path = File.join(TEST_DIR, name)
@@ -30,7 +30,7 @@ def expect_parse_fail(path)
     run_toml_test_file(path)
 end
 
-assert("TOML-Test: files-toml-1.0.0") do
+assert("TOML-Test: files-toml-1.1.0") do
   lines = File.read(FILE_LIST).split("\n")
 
   lines.each do |rel|
