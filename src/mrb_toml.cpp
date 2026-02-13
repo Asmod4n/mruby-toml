@@ -27,24 +27,24 @@ raise_toml_error(mrb_state* mrb, const std::string& msg)
   mrb_raise(mrb, E_RUNTIME_ERROR, msg.c_str());
 }
 
+template <mrb_timezone Zone>
 static mrb_value
-make_time_at(mrb_state* mrb, const struct tm& tm_val, time_t usec, mrb_timezone zone)
+make_time_at(mrb_state* mrb, const struct tm& tm_val, time_t usec)
 {
-  struct tm tm_copy = tm_val;
-  time_t sec;
+    struct tm tm_copy = tm_val;
 
-  if (zone == MRB_TIMEZONE_LOCAL) {
-    // Interpret as local wall‑clock time
-    sec = mktime(&tm_copy);
-  } else {
-    // Interpret as UTC
-    sec = timegm(&tm_copy);
-  }
+    time_t sec;
+    if constexpr (Zone == MRB_TIMEZONE_LOCAL) {
+        sec = mktime(&tm_copy);
+    } else {
+        sec = timegm(&tm_copy);
+    }
 
-  if (sec == -1) mrb_sys_fail(mrb, "make_time_at");
+    if (sec == -1) mrb_sys_fail(mrb, "make_time_at");
 
-  return mrb_time_at(mrb, sec, usec, zone);
+    return mrb_time_at(mrb, sec, usec, Zone);
 }
+
 
 
 /* ========================================================================== */
@@ -94,10 +94,7 @@ static void extract_fractional(const TimeLike& t, time_t& usec)
 }
 
 template <typename DT>
-static void dt_to_tm(const DT& dt, struct tm& out);
-
-template <>
-void dt_to_tm(const toml::local_datetime& dt, struct tm& out)
+static void copy_date_time_fields(const DT& dt, struct tm& out)
 {
     std::memset(&out, 0, sizeof(out));
     out.tm_year = dt.date.year - 1900;
@@ -109,21 +106,25 @@ void dt_to_tm(const toml::local_datetime& dt, struct tm& out)
     out.tm_isdst = -1;
 }
 
+// 1. Primary template declaration
+template <typename DT>
+static void dt_to_tm(const DT& dt, struct tm& out);
+
+// 2. Specialization for local_datetime
+template <>
+void dt_to_tm(const toml::local_datetime& dt, struct tm& out)
+{
+    copy_date_time_fields(dt, out);
+}
+
+// 3. Specialization for offset_datetime
 template <>
 void dt_to_tm(const toml::offset_datetime& dt, struct tm& out)
 {
     struct tm tm_local;
-    std::memset(&tm_local, 0, sizeof(tm));
-    tm_local.tm_year = dt.date.year - 1900;
-    tm_local.tm_mon  = dt.date.month;
-    tm_local.tm_mday = dt.date.day;
-    tm_local.tm_hour = dt.time.hour;
-    tm_local.tm_min  = dt.time.minute;
-    tm_local.tm_sec  = dt.time.second;
-    tm_local.tm_isdst = -1;
+    copy_date_time_fields(dt, tm_local);
 
     time_t t = timegm(&tm_local);
-
     time_t offset_sec = (dt.offset.hour * 60 + dt.offset.minute) * 60;
     t -= offset_sec;
 
@@ -131,43 +132,41 @@ void dt_to_tm(const toml::offset_datetime& dt, struct tm& out)
     gmtime_s(&out, &t);
 #else
     gmtime_r(&t, &out);
+
 #endif
 }
 
-template <typename T> struct is_local_datetime      : std::false_type {};
-template <> struct is_local_datetime<toml::local_datetime> : std::true_type {};
+template <typename DT> struct datetime_traits;
 
-template <typename T> struct is_offset_datetime     : std::false_type {};
-template <> struct is_offset_datetime<toml::offset_datetime> : std::true_type {};
+template <>
+struct datetime_traits<toml::local_datetime>
+{
+    static constexpr mrb_timezone tz = MRB_TIMEZONE_LOCAL;
+    static constexpr mrb_sym type = MRB_SYM(local_datetime);
+};
+
+template <>
+struct datetime_traits<toml::offset_datetime>
+{
+    static constexpr mrb_timezone tz = MRB_TIMEZONE_UTC;
+    static constexpr mrb_sym type = MRB_SYM(offset_datetime);
+};
 
 template <typename DT>
 static mrb_value build_datetime(mrb_state* mrb, const DT& dt)
 {
-  time_t usec = 0;
-  extract_fractional(dt.time, usec);
+    time_t usec = 0;
+    extract_fractional(dt.time, usec);
 
-  struct tm tm_utc;
-  dt_to_tm(dt, tm_utc);
+    struct tm tm_utc;
+    dt_to_tm(dt, tm_utc);
 
-  mrb_timezone tz;
-  mrb_sym type;
+    using traits = datetime_traits<DT>;
 
-  if constexpr (is_offset_datetime<DT>::value) {
-    tz   = MRB_TIMEZONE_UTC;
-    type = MRB_SYM(offset_datetime);
-  }
-  else if constexpr (is_local_datetime<DT>::value) {
-    tz   = MRB_TIMEZONE_LOCAL;
-    type = MRB_SYM(local_datetime);
-  }
-  else {
-    static_assert(!sizeof(DT), "Unsupported datetime type for build_datetime");
-  }
+    mrb_value time = make_time_at<traits::tz>(mrb, tm_utc, usec);
+    mrb_iv_set(mrb, time, MRB_IVSYM(toml_type), mrb_symbol_value(traits::type));
 
-  mrb_value time = make_time_at(mrb, tm_utc, usec, tz);
-  mrb_iv_set(mrb, time, MRB_IVSYM(toml_type), mrb_symbol_value(type));
-
-  return time;
+    return time;
 }
 
 static mrb_value
@@ -396,12 +395,25 @@ mrb_toml_doc_dump(mrb_state* mrb, mrb_value self)
   return mrb_nil_value();
 }
 
-static mrb_value
-mrb_toml_doc_load(mrb_state* mrb, mrb_value self)
-{
-  mrb_value path;
-  mrb_get_args(mrb, "S", &path);
+template <typename Mode>
+toml::value mrb_toml_parse(const std::string& s);
 
+template <>
+inline toml::value mrb_toml_parse<struct load_mode>(const std::string& s)
+{
+  return toml::parse(s, spec);
+}
+
+template <>
+inline toml::value mrb_toml_parse<struct parse_mode>(const std::string& s)
+{
+  return toml::parse_str(s, spec);
+}
+
+template <typename Mode>
+static mrb_value
+mrb_toml_doc_impl(mrb_state* mrb, mrb_value self, mrb_value input)
+{
   struct RClass* doc_class =
     mrb_class_get_under_id(mrb, mrb_class_ptr(self), MRB_SYM(Document));
   mrb_value obj = mrb_obj_new(mrb, doc_class, 0, nullptr);
@@ -409,18 +421,27 @@ mrb_toml_doc_load(mrb_state* mrb, mrb_value self)
   toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
 
   try {
-    std::string fname(RSTRING_PTR(path), RSTRING_LEN(path));
-    toml::value v = toml::parse(fname, spec);
-    if (!v.is_table()) raise_toml_error(mrb, "TOML root must be a table");
+    std::string s(RSTRING_PTR(input), RSTRING_LEN(input));
+    toml::value v = mrb_toml_parse<Mode>(s);
+
+    if (!v.is_table())
+      raise_toml_error(mrb, "TOML root must be a table");
+
     *root = std::move(v);
   }
   catch (const std::exception& e) {
-    std::string msg = "TOML parse error: ";
-    msg += e.what();
-    raise_toml_error(mrb, msg);
+    raise_toml_error(mrb, std::string("TOML parse error: ") + e.what());
   }
 
   return obj;
+}
+
+static mrb_value
+mrb_toml_doc_load(mrb_state* mrb, mrb_value self)
+{
+  mrb_value path;
+  mrb_get_args(mrb, "S", &path);
+  return mrb_toml_doc_impl<load_mode>(mrb, self, path);
 }
 
 static mrb_value
@@ -428,26 +449,7 @@ mrb_toml_doc_parse(mrb_state* mrb, mrb_value self)
 {
   mrb_value doc;
   mrb_get_args(mrb, "S", &doc);
-
-  struct RClass* doc_class =
-    mrb_class_get_under_id(mrb, mrb_class_ptr(self), MRB_SYM(Document));
-  mrb_value obj = mrb_obj_new(mrb, doc_class, 0, nullptr);
-
-  toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
-
-  try {
-    std::string content(RSTRING_PTR(doc), RSTRING_LEN(doc));
-    toml::value v = toml::parse_str(content, spec);
-    if (!v.is_table()) raise_toml_error(mrb, "TOML root must be a table");
-    *root = std::move(v);
-  }
-  catch (const std::exception& e) {
-    std::string msg = "TOML parse error: ";
-    msg += e.what();
-    raise_toml_error(mrb, msg);
-  }
-
-  return obj;
+  return mrb_toml_doc_impl<parse_mode>(mrb, self, doc);
 }
 
 /* ========================================================================== */
