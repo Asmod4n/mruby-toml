@@ -10,6 +10,7 @@ MRuby::Gem::Specification.new('mruby-toml') do |spec|
   spec.add_dependency 'mruby-errno'
   spec.add_test_dependency 'mruby-io'
   spec.add_test_dependency 'mruby-dir'
+  spec.add_test_dependency 'mruby-fast-json'
 
   spec.cxx.include_paths << File.join(spec.dir, "vendor/toml11/include")
 

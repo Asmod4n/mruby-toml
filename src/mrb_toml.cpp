@@ -45,8 +45,6 @@ make_time_at(mrb_state* mrb, const struct tm& tm_val, time_t usec)
     return mrb_time_at(mrb, sec, usec, Zone);
 }
 
-
-
 /* ========================================================================== */
 /* TOML → MRuby                                                               */
 /* ========================================================================== */
@@ -302,33 +300,57 @@ mrb_array_to_toml_array(mrb_state* mrb, mrb_value obj)
   return toml::value(arr);
 }
 
-static
-toml::offset_datetime mrb_time_to_offset_datetime(mrb_state* mrb, mrb_value time) {
-    struct tm tm_local = *mrb_time_get_tm(mrb, time);
+static toml::value
+mrb_time_to_toml(mrb_state* mrb, mrb_value time)
+{
+    mrb_sym type_sym = 0;
+    mrb_value iv = mrb_iv_get(mrb, time, MRB_IVSYM(toml_type));
+    if (!mrb_nil_p(iv)) {
+        type_sym = mrb_symbol(iv);
+    }
+
+    struct tm *tm_local = mrb_time_get_tm(mrb, time);
 
     mrb_value usec_v = mrb_funcall_argv(mrb, time, MRB_SYM(usec), 0, nullptr);
     time_t usec = static_cast<time_t>(mrb_integer(usec_v));
 
-    mrb_value offset_sec_v = mrb_funcall_argv(mrb, time, MRB_SYM(utc_offset), 0, nullptr);
-    time_t offset_sec = static_cast<time_t>(mrb_integer(offset_sec_v));
-    int off_hour = -static_cast<int>(offset_sec / 3600);
-    int off_min  = -static_cast<int>((offset_sec % 3600) / 60);
-
-    toml::local_date date(tm_local.tm_year + 1900,
-                          toml::month_t(tm_local.tm_mon),
-                          tm_local.tm_mday);
-
     int millis = static_cast<int>(usec / 1000);
     int micros = static_cast<int>(usec % 1000);
 
-    toml::local_time tod(tm_local.tm_hour,
-                         tm_local.tm_min,
-                         tm_local.tm_sec,
-                         millis,
-                         micros);
+    toml::local_date date(
+        tm_local->tm_year + 1900,
+        toml::month_t(tm_local->tm_mon),
+        tm_local->tm_mday
+    );
+
+    toml::local_time tod(
+        tm_local->tm_hour,
+        tm_local->tm_min,
+        tm_local->tm_sec,
+        millis,
+        micros
+    );
+
+    switch (type_sym) {
+        case MRB_SYM(local_datetime):
+            return toml::value(toml::local_datetime(date, tod));
+        case MRB_SYM(local_date):
+            return toml::value(date);
+        case MRB_SYM(local_time):
+            return toml::value(tod);
+        default:
+            break;
+    }
+
+    mrb_value offset_sec_v = mrb_funcall_argv(mrb, time, MRB_SYM(utc_offset), 0, nullptr);
+    time_t offset_sec = static_cast<time_t>(mrb_integer(offset_sec_v));
+
+    int off_hour = -static_cast<int>(offset_sec / 3600);
+    int off_min  = -static_cast<int>((offset_sec % 3600) / 60);
+
     toml::time_offset off(off_hour, off_min);
 
-    return toml::offset_datetime(date, tod, off);
+    return toml::value(toml::offset_datetime(date, tod, off));
 }
 
 static toml::value
@@ -356,7 +378,7 @@ mrb_to_toml_value(mrb_state* mrb, mrb_value v)
 
 
       if (mrb_obj_is_kind_of(mrb, v, time_class)) {
-          toml::value tv(mrb_time_to_offset_datetime(mrb, v));
+          toml::value tv(mrb_time_to_toml(mrb, v));
           return tv;
       }
 

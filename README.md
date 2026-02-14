@@ -34,7 +34,7 @@ data = TOML.parse(dumped)
 Add this gem to your `build_config.rb`:
 
 ```ruby
-conf.gem github: "Asmod4n/mruby-toml"
+conf.gem mgem: "mruby-toml"
 ```
 
 ## Acknowledgements

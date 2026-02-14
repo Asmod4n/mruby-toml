@@ -229,6 +229,19 @@ assert("TOML: offset datetime -05:30") do
   assert_equal 0, o.utc_offset
 end
 
+assert("TOML: parsed datetime objects carry @toml_type ivar") do
+  ld  = TOML.parse("d = 2024-01-02")["d"]
+  lt  = TOML.parse("t = 12:34:56")["t"]
+  ldt = TOML.parse("dt = 2024-01-02T12:34:56")["dt"]
+  odt = TOML.parse("o = 2024-01-02T12:34:56Z")["o"]
+
+  assert_equal :local_date,      ld.toml_type
+  assert_equal :local_time,      lt.toml_type
+  assert_equal :local_datetime,  ldt.toml_type
+  assert_equal :offset_datetime, odt.toml_type
+end
+
+
 # -------------------------------------------------------------------
 # 6. Dumping round-trip (string-based)
 # -------------------------------------------------------------------
@@ -259,6 +272,47 @@ assert("TOML: dumping round-trip Time (string)") do
   data = TOML.parse(dumped)
   assert_equal now, data["time"]
 end
+
+assert("TOML: dumping preserves local_date") do
+  d = TOML.parse("d = 2024-01-02")["d"]
+  dumped = TOML.dump(d: d)
+  parsed = TOML.parse(dumped)["d"]
+
+  assert_equal :local_date, parsed.toml_type
+  assert_equal d.year,  parsed.year
+  assert_equal d.month, parsed.month
+  assert_equal d.day,   parsed.day
+end
+
+assert("TOML: dumping preserves local_time") do
+  t = TOML.parse("t = 12:34:56.789")["t"]
+  dumped = TOML.dump(t: t)
+  parsed = TOML.parse(dumped)["t"]
+
+  assert_equal :local_time, parsed.toml_type
+  assert_equal t.hour, parsed.hour
+  assert_equal t.min,  parsed.min
+  assert_equal t.sec,  parsed.sec
+end
+
+assert("TOML: dumping preserves local_datetime") do
+  dt = TOML.parse("dt = 2024-01-02T12:34:56.123")["dt"]
+  dumped = TOML.dump(dt: dt)
+  parsed = TOML.parse(dumped)["dt"]
+
+  assert_equal :local_datetime, parsed.toml_type
+  assert_equal dt.to_i, parsed.to_i
+end
+
+assert("TOML: dumping preserves offset_datetime") do
+  odt = TOML.parse("o = 2024-01-02T12:34:56+02:00")["o"]
+  dumped = TOML.dump(o: odt)
+  parsed = TOML.parse(dumped)["o"]
+
+  assert_equal :offset_datetime, parsed.toml_type
+  assert_equal odt.to_i, parsed.to_i
+end
+
 
 # -------------------------------------------------------------------
 # 7. Error handling
