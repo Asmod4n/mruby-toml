@@ -18,13 +18,33 @@
 #include <mruby/cpp_helpers.hpp>
 #include <mruby/num_helpers.hpp>
 #include <mruby/cpp_to_mrb_value.hpp>
+#include <mruby/toml.h>
 
 static auto spec = toml::spec::v(1,1,0);
 
-static void
-raise_toml_error(mrb_state* mrb, const std::string& msg)
+static void raise_toml_error(mrb_state* mrb, const toml::syntax_error& e)
 {
-  mrb_raise(mrb, E_RUNTIME_ERROR, msg.c_str());
+    mrb_raise(mrb, E_TOML_SYNTAX_ERROR(mrb), e.what());
+}
+
+static void raise_toml_error(mrb_state* mrb, const toml::type_error& e)
+{
+    mrb_raise(mrb, E_TOML_TYPE_ERROR(mrb), e.what());
+}
+
+static void raise_toml_error(mrb_state* mrb, const toml::file_io_error& e)
+{
+    mrb_sys_fail(mrb, e.what());
+}
+
+static void raise_toml_error(mrb_state* mrb, const toml::exception& e)
+{
+    mrb_raise(mrb, E_TOML_ERROR(mrb), e.what());
+}
+
+static void raise_toml_error(mrb_state* mrb, const std::exception& e)
+{
+    mrb_raise(mrb, E_RUNTIME_ERROR, e.what());
 }
 
 template <mrb_timezone Zone>
@@ -247,7 +267,7 @@ mrb_toml_doc_aref(mrb_state* mrb, mrb_value self)
 
   toml::value* root = mrb_cpp_get<toml::value>(mrb, self);
   if (!root->is_table()) {
-    raise_toml_error(mrb, "TOML root is not a table");
+    mrb_raise(mrb, E_RUNTIME_ERROR, "TOML root is not a table");
   }
 
   auto& tbl = root->as_table();
@@ -256,7 +276,7 @@ mrb_toml_doc_aref(mrb_state* mrb, mrb_value self)
   if (it == tbl.end()) {
     std::string msg = "missing TOML key: ";
     msg += key_str;
-    raise_toml_error(mrb, msg);
+    mrb_raise(mrb, E_KEY_ERROR, msg.c_str());
   }
 
   return toml_value_to_mrb(mrb, it->second);
@@ -408,7 +428,7 @@ mrb_toml_doc_dump(mrb_state* mrb, mrb_value self)
 
   std::string s(RSTRING_PTR(path), RSTRING_LEN(path));
   std::ofstream ofs(s, std::ios::out | std::ios::trunc);
-  if (!ofs) raise_toml_error(mrb, "failed to open file for writing");
+  if (!ofs) mrb_sys_fail(mrb, "std::ofstream ofs(s, std::ios::out | std::ios::trunc)");
 
   ofs << *root;
   return mrb_nil_value();
@@ -440,16 +460,29 @@ mrb_toml_doc_impl(mrb_state* mrb, mrb_value self, mrb_value input)
   toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
 
   try {
-    std::string s(RSTRING_PTR(input), RSTRING_LEN(input));
-    toml::value v = mrb_toml_parse<Mode>(s);
+      std::string s(RSTRING_PTR(input), RSTRING_LEN(input));
+      toml::value v = mrb_toml_parse<Mode>(s);
 
-    if (!v.is_table())
-      raise_toml_error(mrb, "TOML root must be a table");
+      if (!v.is_table()) {
+          mrb_raise(mrb, E_TOML_PARSE_ERROR(mrb), "TOML root must be a table");
+      }
 
-    *root = std::move(v);
+      *root = std::move(v);
+  }
+  catch (const toml::syntax_error& e) {
+      raise_toml_error(mrb, e);
+  }
+  catch (const toml::type_error& e) {
+      raise_toml_error(mrb, e);
+  }
+  catch (const toml::file_io_error& e) {
+      raise_toml_error(mrb, e);
+  }
+  catch (const toml::exception& e) {
+      raise_toml_error(mrb, e);
   }
   catch (const std::exception& e) {
-    raise_toml_error(mrb, std::string("TOML parse error: ") + e.what());
+      raise_toml_error(mrb, e);
   }
 
   return obj;
@@ -474,63 +507,51 @@ mrb_toml_doc_parse(mrb_state* mrb, mrb_value self)
 /* ========================================================================== */
 /* TOML.dump(obj, path = nil)                                                 */
 /* ========================================================================== */
+static void
+toml_write_value(mrb_state* mrb, std::ostream& os, mrb_value obj)
+{
+    struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
+    struct RClass* doc_class =
+        mrb_class_get_under_id(mrb, mod, MRB_SYM(Document));
+
+    if (mrb_obj_is_kind_of(mrb, obj, doc_class)) {
+        toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
+        os << *root;
+    }
+    else if (mrb_type(obj) == MRB_TT_HASH) {
+        toml::value v = mrb_hash_to_toml_table(mrb, obj);
+        os << v;
+    }
+    else {
+        toml::value v = mrb_to_toml_value(mrb, obj);
+        os << v;
+    }
+}
 
 static mrb_value
 mrb_toml_module_dump(mrb_state* mrb, mrb_value self)
 {
-  mrb_value obj;
-  mrb_value path = mrb_nil_value();
-  mrb_get_args(mrb, "o|S!", &obj, &path);
+    mrb_value obj;
+    mrb_value path = mrb_nil_value();
+    mrb_get_args(mrb, "o|S!", &obj, &path);
 
-  // ------------------------------------------------------------
-  if (mrb_nil_p(path)) {
-    std::ostringstream oss;
+    if (mrb_nil_p(path)) {
+        std::ostringstream oss;
+        toml_write_value(mrb, oss, obj);
 
-    struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
-    struct RClass* doc_class =
-      mrb_class_get_under_id(mrb, mod, MRB_SYM(Document));
-
-    if (mrb_obj_is_kind_of(mrb, obj, doc_class)) {
-      toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
-      oss << *root;
-    }
-    else if (mrb_type(obj) == MRB_TT_HASH) {
-      toml::value v = mrb_hash_to_toml_table(mrb, obj);
-      oss << v;
-    }
-    else {
-      toml::value v = mrb_to_toml_value(mrb, obj);
-      oss << v;
+        std::string out = oss.str();
+        return mrb_str_new(mrb, out.data(), out.size());
     }
 
-    std::string out = oss.str();
-    return mrb_str_new(mrb, out.data(), out.size());
-  }
+    std::string s(RSTRING_PTR(path), RSTRING_LEN(path));
+    std::ofstream ofs(s, std::ios::out | std::ios::trunc);
+    if (!ofs) {
+        mrb_sys_fail(mrb, "std::ofstream ofs(s, std::ios::out | std::ios::trunc)");
+    }
 
-  std::string s(RSTRING_PTR(path), RSTRING_LEN(path));
-  std::ofstream ofs(s, std::ios::out | std::ios::trunc);
-  if (!ofs) raise_toml_error(mrb, "failed to open file for writing");
-
-  struct RClass* mod = mrb_module_get_id(mrb, MRB_SYM(TOML));
-  struct RClass* doc_class =
-    mrb_class_get_under_id(mrb, mod, MRB_SYM(Document));
-
-  if (mrb_obj_is_kind_of(mrb, obj, doc_class)) {
-    toml::value* root = mrb_cpp_get<toml::value>(mrb, obj);
-    ofs << *root;
-  }
-  else if (mrb_type(obj) == MRB_TT_HASH) {
-    toml::value v = mrb_hash_to_toml_table(mrb, obj);
-    ofs << v;
-  }
-  else {
-    toml::value v = mrb_to_toml_value(mrb, obj);
-    ofs << v;
-  }
-
-  return mrb_nil_value();
+    toml_write_value(mrb, ofs, obj);
+    return mrb_nil_value();
 }
-
 
 /* ========================================================================== */
 /* Init                                                                       */
@@ -541,6 +562,11 @@ void
 mrb_mruby_toml_gem_init(mrb_state* mrb)
 {
   struct RClass* mod = mrb_define_module_id(mrb, MRB_SYM(TOML));
+
+  struct RClass* err = mrb_define_class_under_id(mrb, mod, MRB_SYM(Error), mrb->eStandardError_class);
+  mrb_define_class_under_id(mrb, mod, MRB_SYM(ParseError), err);
+  mrb_define_class_under_id(mrb, mod, MRB_SYM(SyntaxError), err);
+  mrb_define_class_under_id(mrb, mod, MRB_SYM(TypeError), err);
 
   struct RClass* doc =
     mrb_define_class_under_id(mrb, mod, MRB_SYM(Document), mrb->object_class);

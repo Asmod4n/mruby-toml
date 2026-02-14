@@ -319,24 +319,25 @@ end
 # -------------------------------------------------------------------
 
 assert("TOML: invalid integer") do
-  assert_raise { TOML.parse("a = 1_") }
+  assert_raise(TOML::SyntaxError) { TOML.parse("a = 1_") }
 end
 
 assert("TOML: invalid date") do
-  assert_raise { TOML.parse("d = 2024-13-01") }
+  assert_raise(TOML::SyntaxError) { TOML.parse("d = 2024-13-01") }
 end
 
 assert("TOML: invalid time") do
-  assert_raise { TOML.parse("t = 25:00:00") }
+  assert_raise(TOML::SyntaxError) { TOML.parse("t = 25:00:00") }
 end
 
 assert("TOML: duplicate keys") do
-  assert_raise { TOML.parse("a = 1\na = 2") }
+  assert_raise(TOML::SyntaxError) { TOML.parse("a = 1\na = 2") }
 end
 
 assert("TOML: invalid table redefinition") do
-  assert_raise { TOML.parse("[a]\n[b]\n[a]\n") }
+  assert_raise(TOML::SyntaxError) { TOML.parse("[a]\n[b]\n[a]\n") }
 end
+
 
 # -------------------------------------------------------------------
 # 8. Many keys (file-based)

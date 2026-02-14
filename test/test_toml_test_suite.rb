@@ -98,9 +98,7 @@ assert("TOML-Test: files-toml-1.1.0") do
           assert_expected(expected, doc2)
         end
       elsif invalid_file?(rel)
-        assert_raise()  {assert_invalid_toml(full, rel)}
-
+        assert_raise() {assert_invalid_toml(full, rel)}
       end
-
   end
 end
