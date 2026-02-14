@@ -175,7 +175,6 @@ build_local_date(mrb_state* mrb, const toml::local_date& d)
   tm_val.tm_year = d.year - 1900;
   tm_val.tm_mon  = d.month;
   tm_val.tm_mday = d.day;
-  tm_val.tm_isdst = -1;
 
   time_t sec = mktime(&tm_val);
   mrb_value time = mrb_time_at(mrb, sec, 0, MRB_TIMEZONE_LOCAL);
@@ -192,11 +191,9 @@ build_local_time(mrb_state* mrb, const toml::local_time& t0)
 
   struct tm tm_val;
   std::memset(&tm_val, 0, sizeof(tm_val));
-  tm_val.tm_mday = 1;
   tm_val.tm_hour = t0.hour;
   tm_val.tm_min  = t0.minute;
   tm_val.tm_sec  = t0.second;
-  tm_val.tm_isdst = -1;
 
   time_t sec = mktime(&tm_val);
 
