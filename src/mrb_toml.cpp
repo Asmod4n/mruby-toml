@@ -24,27 +24,28 @@ static auto spec = toml::spec::v(1,1,0);
 
 static void raise_toml_error(mrb_state* mrb, const toml::syntax_error& e)
 {
-    mrb_raise(mrb, E_TOML_SYNTAX_ERROR(mrb), e.what());
+  mrb_raise(mrb, E_TOML_SYNTAX_ERROR(mrb), e.what());
 }
 
 static void raise_toml_error(mrb_state* mrb, const toml::type_error& e)
 {
-    mrb_raise(mrb, E_TOML_TYPE_ERROR(mrb), e.what());
+  mrb_raise(mrb, E_TOML_TYPE_ERROR(mrb), e.what());
 }
 
 static void raise_toml_error(mrb_state* mrb, const toml::file_io_error& e)
 {
-    mrb_sys_fail(mrb, e.what());
+  if (e.has_errno()) errno = e.get_errno();
+  mrb_sys_fail(mrb, e.what());
 }
 
 static void raise_toml_error(mrb_state* mrb, const toml::exception& e)
 {
-    mrb_raise(mrb, E_TOML_ERROR(mrb), e.what());
+  mrb_raise(mrb, E_TOML_ERROR(mrb), e.what());
 }
 
 static void raise_toml_error(mrb_state* mrb, const std::exception& e)
 {
-    mrb_raise(mrb, E_RUNTIME_ERROR, e.what());
+  mrb_raise(mrb, E_RUNTIME_ERROR, e.what());
 }
 
 template <mrb_timezone Zone>
@@ -53,11 +54,13 @@ make_time_at(mrb_state* mrb, const struct tm& tm_val, time_t usec)
 {
     struct tm tm_copy = tm_val;
 
-    time_t sec;
+    time_t sec = 0;
     if constexpr (Zone == MRB_TIMEZONE_LOCAL) {
         sec = mktime(&tm_copy);
-    } else {
+    } else if constexpr (Zone == MRB_TIMEZONE_UTC) {
         sec = timegm(&tm_copy);
+    } else {
+      static_assert(Zone == MRB_TIMEZONE_LOCAL || Zone == MRB_TIMEZONE_UTC, "Invalid timezone");
     }
 
     if (sec == -1) mrb_sys_fail(mrb, "make_time_at");
