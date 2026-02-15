@@ -13,6 +13,4 @@ MRuby::Gem::Specification.new('mruby-toml') do |spec|
   spec.add_test_dependency 'mruby-fast-json'
 
   spec.cxx.include_paths << File.join(spec.dir, "vendor/toml11/include")
-
-  spec.cxx.flags << "-std=c++17"
 end
