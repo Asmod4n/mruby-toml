@@ -7,7 +7,7 @@
 *.swo
 *.log
 build/
-mruby/
+/mruby/
 vendor/toml++/.git
 build_config.rb.lock
 .cache/
